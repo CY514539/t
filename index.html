@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>T-Lyrics 车机日夜模式检测</title>
+<style>
+  :root { --bg:#ffffff; --fg:#111111; --card:#f1f3f5; --accent:#0b62d6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0d1117; --fg:#f5f5f5; --card:#1c232c; --accent:#5aa9ff; }
+  }
+  html,body { margin:0; background:var(--bg); color:var(--fg);
+    font-family: -apple-system, "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  body { padding:24px 32px; transition: background .3s, color .3s; }
+  h1 { font-size:34px; margin:0 0 12px; }
+  #big { font-size:160px; font-weight:800; line-height:1.1; margin:8px 0 4px; }
+  .row { display:flex; flex-wrap:wrap; gap:16px; }
+  .card { background:var(--card); border-radius:16px; padding:16px 20px; font-size:28px; flex:1 1 380px; }
+  .card b { color:var(--accent); }
+  #log { background:var(--card); border-radius:16px; padding:16px 20px; font-size:26px;
+    max-height:520px; overflow:auto; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  #log div { padding:4px 0; border-bottom:1px solid rgba(128,128,128,.25); }
+  button { font-size:28px; padding:12px 28px; border-radius:12px; border:2px solid var(--accent);
+    background:transparent; color:var(--fg); margin:12px 12px 12px 0; }
+  .small { font-size:22px; word-break:break-all; opacity:.85; }
+  .hint { font-size:26px; line-height:1.5; }
+</style>
+</head>
+<body>
+<h1>T-Lyrics 车机日夜模式检测（测试页，与正式环境无关）</h1>
+<div class="hint">用法：打开本页后，在车机「控制 → 显示 → 外观」里切换 日间 / 夜间 / 自动，不要刷新页面，观察下面的大字和日志。</div>
+<div id="big">检测中…</div>
+<div class="row">
+  <div class="card">prefers-color-scheme: dark → <b id="mDark">?</b></div>
+  <div class="card">prefers-color-scheme: light → <b id="mLight">?</b></div>
+  <div class="card">no-preference → <b id="mNone">?</b></div>
+  <div class="card">浏览器支持该媒体查询 → <b id="mSupport">?</b></div>
+  <div class="card">CSS 实际背景色 → <b id="cssBg">?</b></div>
+  <div class="card">change 监听器方式 → <b id="lsnMode">?</b></div>
+</div>
+<div class="row" style="margin-top:16px">
+  <div class="card">当前时间：<b id="clock">?</b></div>
+  <div class="card">页面加载时间：<b id="loaded">?</b></div>
+</div>
+<p class="small">UA：<span id="ua"></span></p>
+<div>
+  <button id="clearBtn" type="button">清空日志</button>
+  <button id="reloadBtn" type="button">刷新页面</button>
+</div>
+<h1 style="font-size:28px">变化日志（最新在上；刷新后保留）</h1>
+<div id="log"></div>
+
+<script>
+(function () {
+  var KEY = 'tl-theme-test-log-v1';
+  var mqDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function ts(d) {
+    d = d || new Date();
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+      pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+  function q(s) { return window.matchMedia ? window.matchMedia(s).matches : null; }
+  function label(isDark) { return isDark ? '深色' : '浅色'; }
+  function loadLog() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
+  function saveLog(a) { try { localStorage.setItem(KEY, JSON.stringify(a.slice(0, 200))); } catch (e) {} }
+  var entries = loadLog();
+  function render() {
+    var el = document.getElementById('log'); el.innerHTML = '';
+    for (var i = 0; i < entries.length; i++) {
+      var d = document.createElement('div'); d.textContent = entries[i]; el.appendChild(d);
+    }
+  }
+  function log(msg) { entries.unshift(ts() + '  ' + msg); saveLog(entries); render(); }
+
+  var last = null;
+  function update() {
+    var dark = mqDark ? mqDark.matches : false;
+    document.getElementById('big').textContent = mqDark ? label(dark) : '不支持 matchMedia';
+    document.getElementById('mDark').textContent = String(q('(prefers-color-scheme: dark)'));
+    document.getElementById('mLight').textContent = String(q('(prefers-color-scheme: light)'));
+    document.getElementById('mNone').textContent = String(q('(prefers-color-scheme: no-preference)'));
+    var sup = window.matchMedia ? (window.matchMedia('(prefers-color-scheme)').media !== 'not all') : false;
+    document.getElementById('mSupport').textContent = sup ? '支持' : '不支持';
+    document.getElementById('cssBg').textContent = getComputedStyle(document.body).backgroundColor;
+    return dark;
+  }
+
+  // change listener
+  var mode = '无';
+  if (mqDark) {
+    var onChange = function (e) {
+      var v = (e && typeof e.matches === 'boolean') ? e.matches : mqDark.matches;
+      update(); last = v;
+      log('【监听器 change 事件】变为 ' + label(v));
+    };
+    if (mqDark.addEventListener) { mqDark.addEventListener('change', onChange); mode = 'addEventListener'; }
+    else if (mqDark.addListener) { mqDark.addListener(onChange); mode = 'addListener(旧接口)'; }
+  }
+  document.getElementById('lsnMode').textContent = mode;
+
+  // backup poll every 2s
+  setInterval(function () {
+    var v = update();
+    if (last !== null && v !== last) {
+      log('【2秒轮询发现变化，监听器未触发】变为 ' + label(v));
+      last = v;
+    }
+    document.getElementById('clock').textContent = ts();
+  }, 2000);
+
+  document.addEventListener('visibilitychange', function () {
+    log('页面可见性：' + document.visibilityState + '，当前 ' + label(mqDark && mqDark.matches));
+  });
+
+  document.getElementById('clearBtn').onclick = function () { entries = []; saveLog(entries); render(); };
+  document.getElementById('reloadBtn').onclick = function () { location.reload(); };
+  document.getElementById('ua').textContent = navigator.userAgent;
+  document.getElementById('loaded').textContent = ts();
+  document.getElementById('clock').textContent = ts();
+  last = update();
+  render();
+  log('页面加载，初始为 ' + (mqDark ? label(last) : '不支持 matchMedia') + '，监听方式 ' + mode);
+})();
+</script>
+</body>
+</html>
